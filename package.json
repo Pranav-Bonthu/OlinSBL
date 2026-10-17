@@ -1,0 +1,12 @@
+{
+  "name": "olinsbl",
+  "private": true,
+  "type": "module",
+  "description": "Olin Suite Basketball League site: bracket, scores, player cards and highlights",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
