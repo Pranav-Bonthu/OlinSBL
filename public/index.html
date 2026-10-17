@@ -559,7 +559,7 @@ function render(){
   app.textContent="";
   const head=h("header",{class:"top"},h("div",{class:"wrap"},
     h("div",{class:"brand"},h("h1",null,"Olin Suite ",h("span",null,"Basketball")," League"),h("p",null,(state.season||"")+" · "+state.teams.length+" teams · games to 11")),
-    h("div",{class:"top-actions"},canEdit?[h("button",{class:"btn","aria-pressed":String(editMode),onclick:()=>{editMode=!editMode;render();}},editMode?"Editing on":"Edit league"),h("button",{class:"btn",onclick:()=>{setKey(null);canEdit=false;editMode=false;render();toast("Logged out.");}},"Log out")]:h("button",{class:"btn",onclick:()=>openLogin()},"Editor login"))
+    h("div",{class:"top-actions"},canEdit?[h("button",{class:"btn","aria-pressed":String(editMode),onclick:()=>{editMode=!editMode;render();}},editMode?"Editing on":"Edit league"),openEditing?null:h("button",{class:"btn",onclick:()=>{setKey(null);canEdit=false;editMode=false;render();toast("Logged out.");}},"Log out")]:h("button",{class:"btn",onclick:()=>openLogin()},"Editor login"))
   ));
   app.append(head);
   if(editMode) app.append(h("div",{class:"editbar"},h("div",{class:"wrap"},"Edit mode: open any game to enter scores, stats and highlights. Open a team to add photos or change the roster. Changes go live when you press Save.")));
@@ -915,6 +915,7 @@ const _close=closeModal; closeModal=function(){currentOpen=null;currentView=null
 /* ---------- editor access + saving (Vercel API) ---------- */
 function getKey(){try{return localStorage.getItem("osbl-editor-key")||"";}catch(e){return "";}}
 function setKey(k){try{if(k) localStorage.setItem("osbl-editor-key",k); else localStorage.removeItem("osbl-editor-key");}catch(e){}}
+let openEditing=false;
 async function checkKey(k){
   if(!k) return false;
   try{const r=await fetch("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({key:k})}); return r.ok;}catch(e){return false;}
@@ -938,7 +939,7 @@ async function loadLeague(){
 async function publish(){
   const btn=document.getElementById("publish-btn")||{};
   const key=getKey();
-  if(!canEdit||!key){toast("Log in as an editor to save changes.");return false;}
+  if(!canEdit||(!key&&!openEditing)){toast("Log in as an editor to save changes.");return false;}
   btn.disabled=true; btn.textContent="Saving…";
   try{
     state.updated=new Date().toISOString();
@@ -957,7 +958,9 @@ function toast(msg){let t=document.getElementById("toast"); if(!t){t=h("div",{cl
 app.append(h("div",{class:"wrap",style:"padding-block:80px;color:var(--muted);font-weight:600"},"Loading the league…"));
 (async()=>{
   if(!(await loadLeague())){app.textContent=""; app.append(h("div",{class:"wrap",style:"padding-block:80px"},h("div",{class:"sec-head"},h("h2",null,"Couldn't load the league")),h("p",{class:"note"},"Refresh the page to try again."))); return;}
-  if(getKey()){canEdit=await checkKey(getKey()); if(!canEdit) setKey(null);}
+  try{const a=await fetch("/api/auth",{cache:"no-store"}); if(a.ok){const j=await a.json(); openEditing=!!j.open;}}catch(e){}
+  if(openEditing) canEdit=true;
+  else if(getKey()){canEdit=await checkKey(getKey()); if(!canEdit) setKey(null);}
   render(); refreshLogoHues();
 })();
 document.addEventListener("visibilitychange",async()=>{

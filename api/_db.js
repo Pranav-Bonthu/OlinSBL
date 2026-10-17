@@ -30,13 +30,23 @@ export async function ensureTable() {
   await sql`insert into osbl_league (id, version, data)
             values (1, 1, ${JSON.stringify(seed)}::jsonb)
             on conflict (id) do nothing`;
+  // Every save keeps the previous version here, so a bad edit can be rolled back.
+  await sql`create table if not exists osbl_history (
+    version int primary key,
+    data jsonb not null,
+    saved_at timestamptz not null default now()
+  )`;
   ready = true;
 }
+
+// Editing is open to everyone unless an EDITOR_PASSCODE environment variable is set.
+export const editingOpen = () => !process.env.EDITOR_PASSCODE;
 
 // Constant-time comparison against the EDITOR_PASSCODE environment variable.
 export function editorKeyOk(key) {
   const want = process.env.EDITOR_PASSCODE || '';
-  if (!want || typeof key !== 'string' || !key) return false;
+  if (!want) return true; // open editing
+  if (typeof key !== 'string' || !key) return false;
   const a = crypto.createHash('sha256').update(key).digest();
   const b = crypto.createHash('sha256').update(want).digest();
   return crypto.timingSafeEqual(a, b);

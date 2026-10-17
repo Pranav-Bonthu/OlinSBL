@@ -23,6 +23,11 @@ export default async function handler(req, res) {
       if (!Number.isInteger(version) || !data || !Array.isArray(data.teams) || !Array.isArray(data.games)) {
         return res.status(400).json({ error: 'That save was malformed.' });
       }
+      // Keep a copy of the version being replaced (last 200 kept) so edits can be undone.
+      await sql`insert into osbl_history (version, data)
+                select version, data from osbl_league where id = 1 and version = ${version}
+                on conflict (version) do nothing`;
+      await sql`delete from osbl_history where version < ${version - 200}`;
       const rows = await sql`update osbl_league
                              set data = ${JSON.stringify(data)}::jsonb, version = version + 1, updated_at = now()
                              where id = 1 and version = ${version}
