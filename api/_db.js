@@ -3,13 +3,23 @@ import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import seed from './_seed.js';
 
-const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+// Neon's Vercel integration names this DATABASE_URL by default, but a custom prefix
+// (e.g. STORAGE_URL or NEON_DATABASE_URL) is picked up too.
+function findDbUrl() {
+  const env = process.env;
+  const preferred = ['DATABASE_URL', 'POSTGRES_URL', 'NEON_DATABASE_URL'];
+  for (const k of preferred) if (env[k]) return env[k];
+  const keys = Object.keys(env).filter(k => /^postgres(ql)?:\/\//.test(env[k] || ''));
+  const pooled = keys.find(k => /(^|_)(DATABASE_URL|POSTGRES_URL|URL)$/.test(k) && !/UNPOOLED|NON_POOLING/.test(k));
+  return env[pooled || keys[0]] || '';
+}
+const url = findDbUrl();
 export const sql = url ? neon(url) : null;
 
 let ready = false;
 // Creates the single-row table on first use and loads the starting data.
 export async function ensureTable() {
-  if (!sql) throw new Error('DATABASE_URL is not set. Connect a Neon database to this Vercel project.');
+  if (!sql) throw new Error('No database connection string found. In Vercel, connect the Neon database to this project for Production, then redeploy.');
   if (ready) return;
   await sql`create table if not exists osbl_league (
     id int primary key,
