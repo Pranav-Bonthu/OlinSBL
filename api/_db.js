@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import seed from './_seed.js';
+import { migrate } from './_bracket.js';
 
 // Neon's Vercel integration names this DATABASE_URL by default, but a custom prefix
 // (e.g. STORAGE_URL or NEON_DATABASE_URL) is picked up too.
@@ -28,7 +29,7 @@ export async function ensureTable() {
     updated_at timestamptz not null default now()
   )`;
   await sql`insert into osbl_league (id, version, data)
-            values (1, 1, ${JSON.stringify(seed)}::jsonb)
+            values (1, 1, ${JSON.stringify(migrate(seed) || seed)}::jsonb)
             on conflict (id) do nothing`;
   // Every save keeps the previous version here, so a bad edit can be rolled back.
   await sql`create table if not exists osbl_history (
