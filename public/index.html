@@ -274,7 +274,8 @@ button.c2k:hover{transform:translateY(-3px) rotate(-.4deg)}
 <script id="app-script">
 (function(){
 "use strict";
-const ROUND_LABEL={W1:"Week 1",W2:"Week 2",L2:"Week 2 · Losers",L3:"Week 3 · Round robin",SF:"Week 4 · Semifinal",F:"Final"};
+const ROUND_LABEL={W1:"Week 1",W2:"Week 2 · Winners",L2:"Week 2 · Losers",X3:"Week 3 · Crossover",WRR:"Weeks 3–4 · Winners round robin",LRR:"Week 4 · Losers round robin",QF:"Week 5 · Quarterfinal",SF:"Week 6 · Semifinal",F:"Final",L3:"Round robin"};
+const gameRoundLabel=g=>g.id==="F-1"?"Week 7 · Final":g.id==="F-2"?"Week 8 · Final, if necessary":(ROUND_LABEL[g.round]||g.round);
 const STATS=[["p1","1PT"],["p2","2PT"],["reb","REB"],["ast","AST"],["stl","STL"],["blk","BLK"]];
 const LEAD_CATS=[["fpts","Fantasy pts"],["pts","Points"],["reb","Rebounds"],["ast","Assists"],["stl","Steals"],["blk","Blocks"],["p2","2-pointers"]];
 const COLORS=["#4F46E5","#0891B2","#7C3AED","#059669","#DB2777","#2563EB","#D97706","#0D9488","#9333EA","#DC2626","#4B5563","#65A30D"];
@@ -315,8 +316,8 @@ function winnerOf(id,seen){
   return null;
 }
 function loserOf(id,seen){const g=gameById(id); const w=winnerOf(id,seen); if(!w) return null; const a=teamOf(g,"A",seen),b=teamOf(g,"B",seen); return w===a?b:w===b?a:null;}
-function rrStandings(){
-  const games=state.games.filter(g=>g.round==="L3");
+function rrStandings(round){
+  const games=state.games.filter(g=>g.round===(round||"L3"));
   const rows={};
   for(const g of games){
     const a=teamOf(g,"A"), b=teamOf(g,"B");
@@ -325,25 +326,44 @@ function rrStandings(){
     const l=w===a?b:a; rows[w].w++; rows[l].l++;
     if(num(g.scoreA)&&num(g.scoreB)){rows[a].pf+=g.scoreA;rows[a].pa+=g.scoreB;rows[b].pf+=g.scoreB;rows[b].pa+=g.scoreA;}
   }
-  const list=Object.values(rows).sort((x,y)=>y.w-x.w||(y.pf-y.pa)-(x.pf-x.pa));
+  const list=Object.values(rows).sort((x,y)=>y.w-x.w||(y.pf-y.pa)-(x.pf-x.pa)||y.pf-x.pf);
   const done=games.length>0&&games.every(g=>winnerOf(g.id));
   let champ=null;
   if(done&&list.length){const t=list[0],n=list[1]; if(!n||t.w>n.w||(t.pf-t.pa)>(n.pf-n.pa)) champ=t.team;}
-  return {list,champ,done};
+  // ranks only count once every game is in; a full tie (same W-L, +/- and points) stays TBD
+  const same=(x,y)=>x&&y&&x.w===y.w&&(x.pf-x.pa)===(y.pf-y.pa)&&x.pf===y.pf;
+  const rankTeam=r=>{if(!done) return null; const t=list[r-1]; if(!t||same(t,list[r-2])||same(t,list[r])) return null; return t.team;};
+  return {list,champ,done,rankTeam};
 }
 function teamOf(g,side,seen){
   const explicit=side==="A"?g.teamA:g.teamB; if(explicit) return explicit;
+  if(g.ifNeeded&&!extraGameNeeded(g)) return null;
   const src=g.src&&g.src[side==="A"?0:1]; if(!src) return null;
   seen=seen||new Set(); if(seen.has(g.id+side)) return null; seen.add(g.id+side);
   if(src[0]==="W") return winnerOf(src[1],seen);
   if(src[0]==="L") return loserOf(src[1],seen);
-  if(src[0]==="RR") return rrStandings().champ;
+  if(src[0]==="RR") return src.length>2?rrStandings(src[1]).rankTeam(src[2]):rrStandings(src[1]).champ;
   return null;
+}
+// The Week 8 game is only played if the losers-side team wins the Week 7 final.
+function extraGameNeeded(g){
+  const f=gameById(g.ifNeeded); if(!f) return false;
+  const w=winnerOf(f.id); return !!w&&w===teamOf(f,"B");
+}
+function champion(){
+  const f=gameById("F-1"); if(!f) return null;
+  const w=winnerOf("F-1"); if(!w) return null;
+  if(!gameById("F-2")||w===teamOf(f,"A")) return w;
+  return winnerOf("F-2");
 }
 function srcLabel(g,side){
   const src=g.src&&g.src[side==="A"?0:1]; if(!src) return "TBD";
-  if(src[0]==="RR") return "Losers bracket champ";
-  const SHORT={W1:"Wk 1 G",W2:"Wk 2 G",L2:"Wk 2 Losers G",L3:"Round robin G",SF:"Semi ",F:"Final "};
+  if(g.ifNeeded){const f=gameById(g.ifNeeded); if(f&&winnerOf(f.id)) return "Not needed"; return side==="A"?"Wk 6 team, if they win Wk 7":"Wk 5 team, if they lose Wk 7";}
+  if(src[0]==="RR"){
+    if(src.length<3) return "Losers bracket champ";
+    return (src[1]==="WRR"?"Winners RR #":"Losers RR #")+src[2];
+  }
+  const SHORT={W1:"Wk 1 G",W2:"Wk 2 G",L2:"Wk 2 Losers G",X3:"Wk 3 Crossover G",WRR:"Winners RR G",LRR:"Losers RR G",QF:"Wk 5 G",SF:"Wk 6 G",F:"Final ",L3:"Round robin G"};
   const sg=gameById(src[1]); const lab=sg?(SHORT[sg.round]||sg.round+" ")+src[1].split("-")[1]:src[1];
   return (src[0]==="W"?"Winner ":"Loser ")+lab;
 }
@@ -467,7 +487,7 @@ function openPlayer(pid,gid){
     refresh();
     right.append(h("div",{class:"editbox"},
       h("h4",null,"Stats vs "+(opp?opp.name:"TBD")),
-      h("p",{class:"note",style:"margin:0"},(ROUND_LABEL[g.round]||g.round)+" · Game "+g.id.split("-")[1]+" · game to "+(g.target||11)+". 1PT and 2PT are made shots."),
+      h("p",{class:"note",style:"margin:0"},gameRoundLabel(g)+" · Game "+g.id.split("-")[1]+" · game to "+(g.target||11)+". 1PT and 2PT are made shots."),
       steps,
       h("div",{class:"form-row",style:"justify-content:space-between;align-items:center"},
         h("div",{class:"statline",style:"font-size:14px"},h("span",null,ptsEl," PTS"),h("span",null,fpEl," FPTS")),
@@ -586,26 +606,42 @@ function gameCard(g){
   const vids=(g.videos||[]).length;
   return h("button",{class:"gcard","data-gid":g.id,onclick:()=>openGame(g.id),"aria-label":"Open game "+g.id},
     row(a,"A",g.scoreA),row(b,"B",g.scoreB),
-    h("div",{class:"meta"},h("span",null,"G"+g.id.split("-")[1]+(g.date?" · "+g.date:"")+((g.target||11)!==11?" · to "+g.target:"")),
-      h("span",null,vids?h("span",{class:"pill vid"},"▶ "+vids):null," ",h("span",{class:"pill "+(w?"final":"up")},w?(hasScore?"Final":"Result"):"Upcoming"))));
+    h("div",{class:"meta"},h("span",null,(g.ifNeeded?"If necessary":"G"+g.id.split("-")[1])+(g.date?" · "+g.date:"")+((g.target||11)!==11?" · to "+g.target:"")),
+      h("span",null,vids?h("span",{class:"pill vid"},"▶ "+vids):null," ",h("span",{class:"pill "+(w?"final":"up")},w?(hasScore?"Final":"Result"):(g.ifNeeded&&winnerOf(g.ifNeeded)&&!extraGameNeeded(g)?"Not needed":"Upcoming")))));
 }
 function col(title,games,extra){return h("div",{class:"bcol"},h("h3",null,title),h("div",{class:"games"},games.map(gameCard),extra||null));}
+function rrBlock(round,notes,emptyMsg){
+  const rr=rrStandings(round);
+  return h("table",{class:"rr-table"},h("thead",null,h("tr",null,h("th",null,"Team"),h("th",{class:"n"},"W-L"),h("th",{class:"n"},"+/-"),h("th",null,""))),
+    h("tbody",null,rr.list.length?rr.list.map((r,i)=>h("tr",null,h("td",null,teamById(r.team).name),h("td",{class:"n"},r.w+"-"+r.l),h("td",{class:"n"},(r.pf-r.pa>0?"+":"")+(r.pf-r.pa)),
+      h("td",{style:"color:var(--muted);font-size:12px;white-space:nowrap"},rr.done&&rr.rankTeam(i+1)?notes[i]||"":""))):
+      h("tr",null,h("td",{colspan:"4",style:"color:var(--muted)"},emptyMsg))));
+}
 function renderBracket(w){
   const by=r=>state.games.filter(g=>g.round===r);
-  const finalW=winnerOf("F-1");
-  w.append(h("div",{class:"sec-head"},h("h2",null,"Championship bracket"),h("p",null,"Tap any game for the box score, rosters and highlights.")));
-  const champ=h("div",{class:"bcol"},h("h3",null,"Champion"),h("div",{class:"games"},h("div",{class:"champ"+(finalW?" set":"")},h("div",{class:"eyebrow"},"Suite champions"),h("div",{class:"tn"},finalW?teamById(finalW).name:"TBD"))));
-  const wb=h("div",{class:"bracket",id:"wb"},col("Week 1",by("W1")),col("Week 2",by("W2")),col("Week 4 · Semis",by("SF")),col("Final",by("F")),champ);
+  const byId=(...ids)=>ids.map(gameById).filter(Boolean);
+  const champW=champion();
+  w.append(h("div",{class:"sec-head"},h("h2",null,"Winners bracket"),h("p",null,"Everyone gets one life. Tap any game for the box score, rosters and highlights.")));
+  const champ=h("div",{class:"bcol"},h("h3",null,"Champion"),h("div",{class:"games"},h("div",{class:"champ"+(champW?" set":"")},h("div",{class:"eyebrow"},"Suite champions"),h("div",{class:"tn"},champW?teamById(champW).name:"TBD"))));
+  const f2=gameById("F-2");
+  const f2note=f2?h("p",{class:"note",style:"margin:0;font-size:12px"},"Week 8 is played only if the losers-bracket team wins Week 7. The winners-bracket team still has its one life."):null;
+  const wb=h("div",{class:"bracket",id:"wb"},
+    col("Week 1",by("W1")),
+    col("Week 2",by("W2")),
+    col("Weeks 3–4 · Round robin",by("WRR"),rrBlock("WRR",["Week 5","Week 5","Drops to losers"],"Teams appear after Week 2.")),
+    col("Week 5 · Top 2",byId("QF-1")),
+    col("Weeks 7–8 · Final",byId("F-1","F-2"),f2note),
+    champ);
   w.append(h("div",{class:"bracket-scroll"},wb));
-  const rr=rrStandings();
-  w.append(h("div",{class:"sec-head"},h("h2",null,"Losers bracket"),h("p",null,"Week 2 losers games feed a three-team round robin. The winner rejoins in the semifinals.")));
-  const table=h("table",{class:"rr-table"},h("thead",null,h("tr",null,h("th",null,"Team"),h("th",{class:"n"},"W-L"),h("th",{class:"n"},"+/-"))),
-    h("tbody",null,rr.list.length?rr.list.map(r=>h("tr",null,h("td",null,teamById(r.team).name),h("td",{class:"n"},r.w+"-"+r.l),h("td",{class:"n"},(r.pf-r.pa>0?"+":"")+(r.pf-r.pa)))):h("tr",null,h("td",{colspan:"3",style:"color:var(--muted)"},"Teams appear after Week 2."))));
-  const lchamp=h("div",{class:"bcol"},h("h3",null,"Standings"),h("div",{class:"games",style:"justify-content:flex-start"},table,
-    h("div",{class:"champ"+(rr.champ?" set":"")},h("div",{class:"eyebrow"},"Rejoins in semis"),h("div",{class:"tn"},rr.champ?teamById(rr.champ).name:"TBD"))));
-  const lb=h("div",{class:"bracket losers",id:"lb"},col("Week 2 · Losers",by("L2")),col("Week 3 · Round robin",by("L3")),lchamp);
+  w.append(h("div",{class:"sec-head"},h("h2",null,"Losers bracket"),h("p",null,"A second loss ends your season. Week 2 winners-bracket losers cross over to face a losers-bracket winner from another group, the winners play a round robin, and the top team meets the third-place winners round robin team in Week 5.")));
+  const lb=h("div",{class:"bracket losers",id:"lb"},
+    col("Week 2 · Losers",by("L2")),
+    col("Week 3 · Crossover",by("X3")),
+    col("Week 4 · Round robin",by("LRR"),rrBlock("LRR",["Week 5","Out","Out"],"Teams appear after Week 3.")),
+    col("Week 5",byId("QF-2")),
+    col("Week 6 · To the final",byId("SF-1")));
   w.append(h("div",{class:"bracket-scroll"},lb));
-  requestAnimationFrame(()=>{drawWires(wb,[["W1","W2"],["W2","SF"],["SF","F"]]);});
+  requestAnimationFrame(()=>{drawWires(wb);drawWires(lb);});
 }
 function drawWires(container,pairs){
   const old=container.querySelector("svg.wires"); if(old) old.remove();
@@ -613,7 +649,7 @@ function drawWires(container,pairs){
   const svg=document.createElementNS(NS,"svg"); svg.setAttribute("class","wires");
   const base=container.getBoundingClientRect();
   for(const g of state.games){
-    if(!g.src) continue;
+    if(!g.src||g.ifNeeded||g.round==="WRR"||g.round==="LRR"||g.round==="L3") continue;
     const to=container.querySelector('[data-gid="'+g.id+'"]'); if(!to) continue;
     g.src.forEach((s,i)=>{
       if(s[0]==="RR") return;
@@ -632,7 +668,7 @@ function drawWires(container,pairs){
   if(f&&c){const fr=f.getBoundingClientRect(),cr=c.getBoundingClientRect();const p=document.createElementNS(NS,"path");const y=fr.top+fr.height/2-base.top;p.setAttribute("d","M"+(fr.right-base.left)+" "+y+" H"+(cr.left-base.left));svg.append(p);}
   container.prepend(svg);
 }
-let rT; window.addEventListener("resize",()=>{clearTimeout(rT);rT=setTimeout(()=>{const wb=document.getElementById("wb"); if(wb) drawWires(wb);},120);});
+let rT; window.addEventListener("resize",()=>{clearTimeout(rT);rT=setTimeout(()=>{for(const id of ["wb","lb"]){const el=document.getElementById(id); if(el) drawWires(el);}},120);});
 
 /* ---------- game sheet ---------- */
 let modalEl=null;
@@ -654,7 +690,7 @@ function openGame(id){
   const ta=a&&teamById(a), tb=b&&teamById(b);
   const ra=a?record(a):null, rb=b?record(b):null;
   const hasScore=num(g.scoreA)&&num(g.scoreB);
-  const title=[h("div",{class:"eyebrow"},(ROUND_LABEL[g.round]||g.round)+" · Game "+g.id.split("-")[1]),
+  const title=[h("div",{class:"eyebrow"},gameRoundLabel(g)+" · Game "+g.id.split("-")[1]),
     h("div",{style:"font-weight:600;margin-top:2px"},(g.date||"Date TBD")+" · Game to "+(g.target||11)+" ",h("span",{class:"pill "+(w?"final":"up")},w?"Final":"Upcoming"))];
   const canScore=canEdit&&a&&b, editing=canScore&&scoreEdit===g.id;
   const sideEd=side=>{
@@ -771,7 +807,7 @@ function videoGrid(items,onRemove){
     let media;
     if(v.asset&&/^[0-9a-f]{32}$/.test(v.asset)) media=h("video",{src:"/_blob/"+v.asset,controls:true,preload:"metadata",playsinline:true});
     else {const u=safeUrl(v.url); media=u?h("a",{class:"thumb",href:u,target:"_blank",rel:"noopener noreferrer"},h("span",{class:"play"},"▶"),h("span",null,"Watch clip")):h("div",{class:"empty"},"Link unavailable");}
-    const gl=g?(ROUND_LABEL[g.round]||g.round)+" G"+g.id.split("-")[1]:"";
+    const gl=g?gameRoundLabel(g)+" G"+g.id.split("-")[1]:"";
     return h("div",{class:"vid"},media,h("div",{class:"cap"},h("div",null,h("b",null,v.title||"Highlight"),h("span",null,gl)),
       onRemove?h("button",{class:"btn small danger",onclick:()=>onRemove(i)},"Remove"):(g&&tab==="highlights"?h("button",{class:"btn small",onclick:()=>openGame(g.id)},"Game"):null)));
   }));
